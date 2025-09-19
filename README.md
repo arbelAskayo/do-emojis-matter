@@ -1,4 +1,4 @@
- # Do Emojis Matter? Multi-label Emotion Classification with and without Emojis
+# Do Emojis Matter? Multi-label Emotion Classification with and without Emojis
 
 > University NLP Seminar Project · Reproducible code & results  
 
@@ -52,4 +52,32 @@ Unified **7-label** schema: `{ anger, disgust, fear, joy, sadness, surprise, oth
 - RoBERTa + emojis yields the strongest overall results.  
 - GPT-5 benefits modestly from emojis; zero-shot ≈ few-shot.
 
+## Code overview
+
+### `few shot code.py`
+LLM-based **zero-/few-shot** multi-label classifier that batches inputs and calls an Azure OpenAI chat model. It:
+- Auto-detects whether texts contain emojis to pick the right prompt variant.
+- Validates the model’s JSON output with Pydantic (`labels` restricted to the 7-class set).
+- Batches (`BATCH_SIZE=20`) with retry + split-on-failure logic, then writes `predictions.csv` (`id,labels,num_labels`).
+
+### `fine_tune_emoji_roberta.py`
+Fine-tunes `cardiffnlp/twitter-roberta-base` for **multi-label** emotion classification on the **with-emojis** split.
+- Config (defaults): `max_length=256`, `lr=1e-5`, `batch_size=16`, `epochs=10`, `warmup=0.1`, `weight_decay=0.01`, seed=42.
+- Device-aware tweaks (CUDA/MPS/CPU), Kaggle/local path handling, HF `Trainer` with `problem_type="multi_label_classification"`.
+- Metrics: **Jaccard**, **F1 (macro/micro/sample)**, **Hamming loss**, plus per-class precision/recall/F1; ensures at least one label (fallback to `other`).
+- Outputs: saved model + tokenizer under `results/emoji_roberta_emotion_local/`, rich plots in `training_plots/`, 
+  `multilabel_evaluation_results.(txt|json)`, and a detailed test CSV including `tweet_id`, `emojis`, and per-class binary columns.  
+
+### `fine_tune_no_emoji_roberta.py`
+Same as `fine_tune_emoji_roberta.py`.
+
+### `multilabel_logistic_regression.py`
+Classical **TF-IDF + One-vs-Rest Logistic Regression** baseline for the **with-emoji** and **no-emoji** splits.
+
+- **Tokenization:** custom “natural” tokenizer that preserves Unicode emojis as standalone tokens (used for the emoji split); standard TF-IDF for the no-emoji split.
+- **Vectorization:** TF-IDF (max_features=10k, n-grams=(1,2), stop_words='english'); min_df=2, max_df=0.95.
+- **Model:** `MultiOutputClassifier(LogisticRegression(class_weight='balanced'))` with `GridSearchCV` over `C ∈ {0.1,1,10}` and `solver ∈ {liblinear, lbfgs}`; `max_iter=1000`.
+- **Metrics:** Exact-Match Ratio, Hamming Loss (+ derived Accuracy), F1 (macro/micro/samples), Precision/Recall (macro), Jaccard; also per-emotion precision/recall/F1 and full binary reports.
+- **Outputs:** comprehensive text reports per condition, dataset statistics, and a side-by-side comparison figure `natural_discovery_comparison_plots.png`.
+- **Paths & run:** the script currently uses hard-coded paths to your train/validation/test CSVs; update `base_dir`, `emoji_dir`, and `no_emoji_dir` at the top of `main()` 
  
